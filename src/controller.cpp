@@ -264,10 +264,12 @@ void setup()
     desired_joint_data = (JointData* ) malloc( sizeof(JointData) * 4);
     for (int i = 0; i < 4; ++i) {
         desired_joint_data[i].id = i + 1;
-        desired_joint_data[i].position = 2500;
+        desired_joint_data[i].position = 1500;
         desired_joint_data[i].velocity = 0;
         desired_joint_data[i].effort = 0;
     }
+
+
 
     delay(1000);
 }
