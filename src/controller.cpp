@@ -58,9 +58,17 @@ rcl_node_t node;
 rcl_timer_t control_timer;
 
 rcl_publisher_t joint_state_publisher;
-sensor_msgs__msg__JointState joint_msg;
-JointState joint_state;
+rcl_subscription_t joint_state_subscriber;
 
+
+
+JointState joint_state;
+JointState joint_state_sub;
+
+sensor_msgs__msg__JointState joint_msg = joint_state.getData();
+sensor_msgs__msg__JointState joint_msg_sub = joint_state_sub.getData();
+
+JointData* desired_joint_data;
 
 enum states
 {
@@ -130,6 +138,26 @@ void readServoIntoJointMsg()
     joint_state.update(joint_data, num_joints);
 }
 
+void joint_callback(const void * msgin)
+{
+    sensor_msgs__msg__JointState *msg = (sensor_msgs__msg__JointState *)msgin;
+
+    //for (int i = 0; i < msg->name.size; ++i) {
+      //  desired_joint_data[i].position = msg->position.data[i];
+        
+    //}
+    desired_joint_data[0].position = msg->position.data[0];
+}
+
+void move_motors()
+{
+    //for (int i = 0; i < joint_msg_sub.name.size; ++i) {
+    
+    sms_sts.RegWritePosEx(1, desired_joint_data[0].position, 3400, 50);
+    
+    sms_sts.RegWriteAction();
+}
+
 void publishData()
 {
     struct timespec time_stamp = getTime();
@@ -149,6 +177,7 @@ void controlCallback(rcl_timer_t * timer, int64_t last_call_time)
     RCLC_UNUSED(last_call_time);
     if (timer != NULL)
     {
+        move_motors();
         readServoIntoJointMsg();
         publishData();
     }
@@ -164,13 +193,18 @@ bool createEntities()
     // create node
     RCCHECK(rclc_node_init_default(&node, "st3215_control", "", &support));
 
-
     RCCHECK(rclc_publisher_init_default(
-    &joint_state_publisher,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
-    "joint_state"
-    ))
+        &joint_state_publisher,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+        "joint_state"));
+
+    RCCHECK(rclc_subscription_init_default(
+        &joint_state_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+        "desired_joint_state"
+    ));
 
     const unsigned int control_timeout = CONTROL_TIMER;
     RCCHECK(rclc_timer_init_default(
@@ -183,7 +217,17 @@ bool createEntities()
 
     RCCHECK(rclc_executor_init(&executor, &support.context, 2, &allocator));
  
+    RCCHECK(rclc_executor_add_subscription(
+        &executor,
+        &joint_state_subscriber,
+        &joint_msg_sub,
+        &joint_callback,
+        ON_NEW_DATA
+    ));
+
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
+
+
 
     syncTime();
 
@@ -197,6 +241,8 @@ bool destroyEntities()
     (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
     RCSOFTCHECK(rcl_publisher_fini(&joint_state_publisher, &node));
+    RCSOFTCHECK(rcl_subscription_fini(&joint_state_subscriber, &node));
+
     RCSOFTCHECK(rcl_timer_fini(&control_timer));
     RCSOFTCHECK(rclc_executor_fini(&executor));
     RCSOFTCHECK(rcl_node_fini(&node))
@@ -213,6 +259,15 @@ void setup()
     sms_sts.pSerial = &Serial1;
 
     set_microros_serial_transports(Serial);
+
+    // Init desired joint data
+    desired_joint_data = (JointData* ) malloc( sizeof(JointData) * 4);
+    for (int i = 0; i < 4; ++i) {
+        desired_joint_data[i].id = i + 1;
+        desired_joint_data[i].position = 2500;
+        desired_joint_data[i].velocity = 0;
+        desired_joint_data[i].effort = 0;
+    }
 
     delay(1000);
 }
